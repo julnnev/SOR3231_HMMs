@@ -1,106 +1,365 @@
+###################################################################### 
 rm(list = ls())
 set.seed(123)
+library(quantmod)
+library(moments)
+library(tseries) 
 library(HiddenMarkov)
-library(readr)
+library(ggplot2)
+library(reshape2)
 
-# Preparing dataset for HMM analysis
-data <- read_csv("Desktop/Time Series 2 Assignment/data.csv")
-data$`Open Timestamp` <- as.POSIXct(data$`Open Timestamp`, format = "%Y.%m.%d %H:%M:%S")
-data$`Open Timestamp` <- as.Date(data$`Open Timestamp`)
+###################################################################### 
+# Obtaining historical stock data for Apple (AAPL) from Yahoo Finance
+getSymbols("AAPL", src = "yahoo", from = "2014-01-01", to = "2024-12-31")
+head(AAPL)
+chartSeries(AAPL, theme = chartTheme("white"))
 
-data$log_returns <- log(data$Close) - log(data$Open)
-# thresholds for bull and bear markets
-threshold_positive <- 0.0001  # Small positive return -  bull market
-threshold_negative <- -0.0001  # Small negative return - bear market
+#AAPL$Returns <- log(AAPL$AAPL.Close) - log(AAPL$AAPL.Open)
+stock_prices <- Cl(AAPL)
+prices <- as.numeric(stock_prices) # Convert to numeric vector
 
-# labelling the market conditions
-data$market_conditions <- ifelse(data$log_returns > threshold_positive, "Bull", 
-                            ifelse(data$log_returns < threshold_negative, "Bear", "Neutral"))
+# Calculating daily log returns
+log_returns <- diff(log(prices), lag = 1)
+log_returns <- log_returns[!is.na(log_returns)]  # Remove NAs
 
-nStates <- 3  # Number of hidden states
-Pi <- matrix(c(0.7, 0.2, 0.1,    # From Bull (State 1)
-               0.3, 0.4, 0.3,    # From Neutral (State 2)
-               0.2, 0.3, 0.5),   # From Bear (State 3)
-             byrow = TRUE, nrow = 3)
-delta <- c(1/3, 1/3, 1/3) # no strong prior belief about the market conditions at the start (equally likely to be in any of the states)
+# explanatory data analysis
+summary(log_returns)
+skewness(log_returns)
+kurtosis(log_returns)
 
-# Assuming normal distributions for each state
-# Assuming data$log_returns is the log returns and data$state has the states
-bull_returns <- data$log_returns[data$market_conditions == "Bull"]
-neutral_returns <- data$log_returns[data$market_conditions == "Neutral"]
-bear_returns <- data$log_returns[data$market_conditions == "Bear"]
+jarque_bera_result <- jarque.bera.test(log_returns)
+print(jarque_bera_result) #reject h0, log returns NOT normally distributed
 
-# Calculate the mean and standard deviation for each state
-mean_bull <- mean(bull_returns, na.rm = TRUE)
-mean_neutral <- mean(neutral_returns, na.rm = TRUE)
-mean_bear <- mean(bear_returns, na.rm = TRUE)
+###################################################################### 
+## HMM 2 states
 
-sd_bull <- sd(bull_returns, na.rm = TRUE)
-sd_neutral <- sd(neutral_returns, na.rm = TRUE)
-sd_bear <- sd(bear_returns, na.rm = TRUE)
+nstates <- 2 # number of states
 
-# Set the means and standard deviations for the HMM
-means <- c(mean_bull, mean_neutral, mean_bear)
-sds <- c(sd_bull, sd_neutral, sd_bear)
+Pi_init <- matrix(1 / nstates, nrow = nstates, ncol = nstates) # transition probabilities (equal probabilities)
 
-mod <- dthmm(data$log_returns, 
-             Pi = Pi,         # Transition matrix
-             delta = delta,   # Initial state distribution
-             "norm",          # Normal emission distribution
-             list(mean = means, sd = sds))
+delta_init <- rep(1 / nstates, nstates) # initial state probabilities
 
-fitted.mod <- BaumWelch(mod) 
+# emission parameters (mean and variance for Gaussian emissions)
+emission_params <- list(mean = c(-0.01, 0.01), sd = c(0.02, 0.05))
 
-summary(fitted.mod)
+# HMM model
+hmm_model <- dthmm(x = log_returns, 
+                   Pi = Pi_init, 
+                   delta = delta_init, 
+                   distn = "norm", 
+                   pm = emission_params)
 
-fitted.mod$u  #state probabilities
+fitted_hmm <- BaumWelch(hmm_model)
+summary(fitted_hmm)
 
-#data$viterbi_states <- Viterbi(fitted.mod)
-#state_labels <- c("Bull", "Neutral", "Bear")
-#data$decoded_state <- state_labels[data$viterbi_states]
-#conf_matrix <- table(Predicted = data$decoded_state, Actual = data$market_conditions)
-#print(conf_matrix)
-#accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
-#print(accuracy)
+# fitted model parameters
+fitted_hmm$Pi       # Transition matrix
+fitted_hmm$delta    # Initial probabilities
+fitted_hmm$pm       # Emission parameters (means and variances)
+
+hidden_states <- Viterbi(fitted_hmm)
 
 
-residuals <- residuals(fitted.mod)
+# Adding hidden states to a data frame
+sequence_data <- data.frame(time = 1:length(log_returns), 
+                            log_returns = log_returns, 
+                            state = factor(hidden_states))
+
+ggplot(sequence_data, aes(x = time, y = log_returns)) +
+  geom_line() +
+  geom_rect(aes(xmin = time - 0.5, xmax = time + 0.5, ymin = -Inf, ymax = Inf, fill = state), 
+            alpha = 0.2, inherit.aes = FALSE) +
+  theme_minimal() +
+  labs(title = "Log Returns with Regime Shading", fill = "State")
+
+# Adding hidden states to the data for analysis
+log_returns_with_states <- data.frame(log_returns = log_returns, 
+                                      state = hidden_states)
+
+head(log_returns_with_states)
+
+ggplot(log_returns_with_states, aes(x = 1:length(log_returns), y = log_returns)) +
+  geom_line() +
+  geom_point(aes(color = factor(state)), size = 1.5) +
+  labs(title = "Log Returns with Hidden States", color = "State") +
+  theme_minimal()
 
 
-####
-hist(residuals, main="HMM: Boxplot of Pseudo Residuals")
+# log-likelihood from the fitted model
+logL <- fitted_hmm$LL
+nlogL_2states <- -logL
+
+# Number of parameters
+nstates <- length(fitted_hmm$delta)  # Number of states
+transition_params <- nstates * (nstates - 1)  # Free parameters in transition matrix
+emission_params <- length(unlist(fitted_hmm$pm))  # Emission parameters
+initial_params <- nstates - 1  # Initial probabilities
+num_params <- transition_params + emission_params + initial_params
+
+# Number of observations
+num_obs <- length(log_returns)
+
+# AIC, BIC, HQC calculations
+AIC_2states <- -2 * logL + 2 * num_params
+BIC_2states <- -2 * logL + num_params * log(num_obs)
+HQC_2states <- -2 * logL + 2 * num_params * log(log(num_obs))
+
+# Analysing residuals
+residuals <- residuals(fitted_hmm)
+hist(residuals, main="HMM: Histogram of Pseudo Residuals")
 qqnorm(residuals, main="HMM: Q-Q Plot of Pseudo Residuals")
+print(sum(fitted_hmm$delta))
+print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
 
-print(logLik(fitted.mod))
+#Plot gaussian mixture on log returns 
 
-print(sum(fitted.mod$delta))
-print(fitted.mod$Pi %*% rep(1, ncol(fitted.mod$Pi)))
+state_means <- fitted_hmm$pm$mean
+state_sds <-fitted_hmm$pm$sd
 
-# Decode states using Viterbi algorithm
-states <- Viterbi(mod)
+# Defining Gaussian density function
+gaussian_density <- function(x, mean, sd) {
+  dnorm(x, mean = mean, sd = sd)
+}
+# data frame for the density values to overlay
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+for (i in 1:length(state_means)) {
+  density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
+}
 
-# Compare predicted states with actual states (assuming `data$decoded_state` contains actual labels)
-comparison_df <- data.frame(Time = 1:length(states),
-                            Actual = data$decoded_state,
-                            Predicted = factor(states, levels = 1:3, labels = c("Low", "Neutral", "High")))
+density_melted <- melt(density_data, id.vars = "x", variable.name = "State", value.name = "Density")
 
-# Plot the log returns
-plot(1:length(data$log_returns), data$log_returns, type = "l", xlab = "Time", ylab = "Log Returns", col = "black")
-plot(1:30, data$log_returns[1:30], type = "l", xlab = "Time", ylab = "Log Returns", col = "black")
+# Plotting log returns with Gaussian mixture
+ggplot() +
+  # Histogram of log returns
+  geom_histogram(aes(x = log_returns, y = after_stat(density)), bins = 30, fill = "gray", alpha = 0.5) +
+  # Overlay Gaussian mixture components
+  geom_line(data = density_melted, aes(x = x, y = Density, color = State), linewidth = 1) +
+  labs(title = "Log Returns with Gaussian Mixture", x = "Log Returns", y = "Density", color = "State") +
+  theme_minimal()
+
+###################################################################### 
+## HMM 3 states
+
+nstates <- 3 # number of states
+
+Pi_init <- matrix(1 / nstates, nrow = nstates, ncol = nstates) # transition probabilities (equal probabilities)
+
+delta_init <- rep(1 / nstates, nstates) #initial state probabilities
+
+emission_params <- list(mean = c(-0.01, 0, 0.01), sd = c(0.02, 0.05, 0.03))  # emission parameters (mean and variance for Gaussian emissions)
+
+# HMM model
+hmm_model <- dthmm(x = log_returns, 
+                   Pi = Pi_init, 
+                   delta = delta_init, 
+                   distn = "norm", 
+                   pm = emission_params)
+
+fitted_hmm <- BaumWelch(hmm_model)
+summary(fitted_hmm)
+
+# fitted model parameters
+fitted_hmm$Pi       # Transition matrix
+fitted_hmm$delta    # Initial probabilities
+fitted_hmm$pm       # Emission parameters (means and variances)
 
 
-# Add points for actual states (e.g., "Low" -> blue, "Neutral" -> green, "High" -> red)
-points((1:length(data$log_returns))[comparison_df$Actual == "Low"], data$log_returns[comparison_df$Actual == "Low"], col = "blue", pch = 15)
-points((1:length(data$log_returns))[comparison_df$Actual == "Neutral"], data$log_returns[comparison_df$Actual == "Neutral"], col = "green", pch = 15)
-points((1:length(data$log_returns))[comparison_df$Actual == "High"], data$log_returns[comparison_df$Actual == "High"], col = "red", pch = 15)
+hidden_states <- Viterbi(fitted_hmm)
 
-# Add points for predicted states
-points((1:length(data$log_returns))[comparison_df$Predicted == "Low"], data$log_returns[comparison_df$Predicted == "Low"], col = "blue", pch = 1)
-points((1:length(data$log_returns))[comparison_df$Predicted == "Neutral"], data$log_returns[comparison_df$Predicted == "Neutral"], col = "green", pch = 1)
-points((1:length(data$log_returns))[comparison_df$Predicted == "High"], data$log_returns[comparison_df$Predicted == "High"], col = "red", pch = 1)
+# Adding hidden states to the data for analysis
+log_returns_with_states <- data.frame(log_returns = log_returns, 
+                                      state = hidden_states)
 
-# Optionally, you can highlight the points where the prediction is wrong
-wrong <- comparison_df$Actual != comparison_df$Predicted
-points((1:length(data$log_returns))[wrong], data$log_returns[wrong], pch = 1, cex = 1.5, col = "black")
+head(log_returns_with_states)
+
+ggplot(log_returns_with_states, aes(x = 1:length(log_returns), y = log_returns)) +
+  geom_line() +
+  geom_point(aes(color = factor(state)), size = 1.5) +
+  labs(title = "Log Returns with Hidden States", color = "State") +
+  theme_minimal()
+
+# adding hidden states to a data frame
+sequence_data <- data.frame(time = 1:length(log_returns), 
+                            log_returns = log_returns, 
+                            state = factor(hidden_states))
 
 
+ggplot(sequence_data, aes(x = time, y = log_returns)) +
+  geom_line() +
+  geom_rect(aes(xmin = time - 0.5, xmax = time + 0.5, ymin = -Inf, ymax = Inf, fill = state), 
+            alpha = 0.2, inherit.aes = FALSE) +
+  scale_fill_manual(values = c("lightblue", "lightpink", "lightgreen")) +
+  labs(title = "Log Returns with Regime Shading", fill = "State") +
+  theme_minimal()
+
+# log-likelihood from the fitted model
+logL <- fitted_hmm$LL
+nlogL_3states <- -logL
+
+# Number of parameters
+nstates <- length(fitted_hmm$delta)  # Number of states
+transition_params <- nstates * (nstates - 1)  # Free parameters in transition matrix
+emission_params <- length(unlist(fitted_hmm$pm))  # Emission parameters
+initial_params <- nstates - 1  # Initial probabilities
+num_params <- transition_params + emission_params + initial_params
+
+# Number of observations
+num_obs <- length(log_returns)
+
+# Calculate AIC and BIC
+AIC_3states <- -2 * logL + 2 * num_params
+BIC_3states <- -2 * logL + num_params * log(num_obs)
+HQC_3states <- -2 * logL + 2 * num_params * log(log(num_obs)) 
+
+# Analysing residuals
+residuals <- residuals(fitted_hmm)
+hist(residuals, main="HMM: Histogram of Pseudo Residuals")
+qqnorm(residuals, main="HMM: Q-Q Plot of Pseudo Residuals")
+print(sum(fitted_hmm$delta))
+print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
+
+# Plot log returns with Gaussian mixture
+state_means <- fitted_hmm$pm$mean
+state_sds <-fitted_hmm$pm$sd
+# Define Gaussian density function
+gaussian_density <- function(x, mean, sd) {
+  dnorm(x, mean = mean, sd = sd)
+}
+# Create a data frame for the density values to overlay
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+for (i in 1:length(state_means)) {
+  density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
+}
+# Reshape the data for ggplot2
+density_melted <- melt(density_data, id.vars = "x", variable.name = "State", value.name = "Density")
+
+
+ggplot() +
+  # Histogram of log returns
+  geom_histogram(aes(x = log_returns, y = after_stat(density)), bins = 30, fill = "gray", alpha = 0.5) +
+  # Overlay Gaussian mixture components
+  geom_line(data = density_melted, aes(x = x, y = Density, color = State), linewidth = 1) +
+  labs(title = "Log Returns with Gaussian Mixture", x = "Log Returns", y = "Density", color = "State") +
+  theme_minimal()
+
+###################################################################### 
+## HMM 4 states
+
+# Define the number of states
+nstates <- 4
+
+# Initialize transition probabilities (equal probabilities)
+Pi_init <- matrix(1 / nstates, nrow = nstates, ncol = nstates)
+
+delta_init <- rep(1 / nstates, nstates) #  initial state probabilities
+
+emission_params <- list(mean = c(-0.01, 0, 0.01, 0.02), sd = c(0.02, 0.05, 0.03, 0.05))  # emission parameters (mean and variance for Gaussian emissions)
+
+# HMM model
+hmm_model <- dthmm(x = log_returns, 
+                   Pi = Pi_init, 
+                   delta = delta_init, 
+                   distn = "norm", 
+                   pm = emission_params)
+
+fitted_hmm <- BaumWelch(hmm_model)
+summary(fitted_hmm)
+
+# fitted model parameters
+fitted_hmm$Pi       # Transition matrix
+fitted_hmm$delta    # Initial probabilities
+fitted_hmm$pm       # Emission parameters (means and variances)
+
+hidden_states <- Viterbi(fitted_hmm)
+
+# Adding the hidden states to the data for analysis
+log_returns_with_states <- data.frame(log_returns = log_returns, 
+                                      state = hidden_states)
+
+head(log_returns_with_states)
+
+
+ggplot(log_returns_with_states, aes(x = 1:length(log_returns), y = log_returns)) +
+  geom_line() +
+  geom_point(aes(color = factor(state)), size = 1.5) +
+  labs(title = "Log Returns with Hidden States", color = "State") +
+  theme_minimal()
+
+
+sequence_data <- data.frame(time = 1:length(log_returns), 
+                            log_returns = log_returns, 
+                            state = factor(hidden_states))
+
+ggplot(sequence_data, aes(x = time, y = log_returns)) +
+  geom_line() +
+  geom_rect(aes(xmin = time - 0.5, xmax = time + 0.5, ymin = -Inf, ymax = Inf, fill = state), 
+            alpha = 0.2, inherit.aes = FALSE) +
+  scale_fill_manual(values = c("lightblue", "lightpink", "lightgreen", "lightyellow")) +
+  labs(title = "Log Returns with Regime Shading", fill = "State") +
+  theme_minimal()
+
+
+# log-likelihood from the fitted model
+logL <- fitted_hmm$LL
+nlogL_4states <- -logL
+
+# Number of parameters
+nstates <- length(fitted_hmm$delta)  # Number of states
+transition_params <- nstates * (nstates - 1)  # Free parameters in transition matrix
+emission_params <- length(unlist(fitted_hmm$pm))  # Emission parameters
+initial_params <- nstates - 1  # Initial probabilities
+num_params <- transition_params + emission_params + initial_params
+
+# Number of observations
+num_obs <- length(log_returns)
+
+# Calculate AIC and BIC
+AIC_4states <- -2 * logL + 2 * num_params
+BIC_4states <- -2 * logL + num_params * log(num_obs)
+HQC_4states <- -2 * logL + 2 * num_params * log(log(num_obs)) 
+
+
+# Analysing residuals
+residuals <- residuals(fitted_hmm)
+hist(residuals, main="HMM: Histogram of Pseudo Residuals")
+qqnorm(residuals, main="HMM: Q-Q Plot of Pseudo Residuals")
+print(sum(fitted_hmm$delta))
+print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
+
+# Plot log returns with Gaussian mixture
+state_means <- fitted_hmm$pm$mean
+state_sds <-fitted_hmm$pm$sd
+# Define Gaussian density function
+gaussian_density <- function(x, mean, sd) {
+  dnorm(x, mean = mean, sd = sd)
+}
+# Create a data frame for the density values to overlay
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+for (i in 1:length(state_means)) {
+  density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
+}
+# Reshape the data for ggplot2
+
+density_melted <- melt(density_data, id.vars = "x", variable.name = "State", value.name = "Density")
+
+ggplot() +
+  # Histogram of log returns
+  geom_histogram(aes(x = log_returns, y = after_stat(density)), bins = 30, fill = "gray", alpha = 0.5) +
+  # Overlay Gaussian mixture components
+  geom_line(data = density_melted, aes(x = x, y = Density, color = State), linewidth = 1) +
+  labs(title = "Log Returns with Gaussian Mixture", x = "Log Returns", y = "Density", color = "State") +
+  theme_minimal()
+
+
+print(AIC_2states)
+print(AIC_3states)
+print(AIC_4states)
+print(BIC_2states)
+print(BIC_3states)
+print(BIC_4states)
+print(nlogL_2states)
+print(nlogL_3states)
+print(nlogL_4states)
+print(HQC_2states)
+print(HQC_3states)
+print(HQC_4states)
