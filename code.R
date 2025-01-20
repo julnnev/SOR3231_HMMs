@@ -24,6 +24,7 @@ log_returns <- log_returns[!is.na(log_returns)]  # Remove NAs
 
 # explanatory data analysis
 summary(log_returns)
+sd(log_returns)
 skewness(log_returns)
 kurtosis(log_returns)
 
@@ -119,12 +120,42 @@ print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
 state_means <- fitted_hmm$pm$mean
 state_sds <-fitted_hmm$pm$sd
 
+###### Plotting Mixture Density with Bell Curve #####
+#  Gaussian mixture density calculation
+dist1 <- dnorm(log_returns, mean = state_means[1], sd = state_sds[1])
+dist2 <- dnorm(log_returns, mean = state_means[2], sd = state_sds[2])
+
+mixture_2_states <- numeric(length(log_returns))
+
+for(i in 1:length(log_returns)){
+  mixture_2_states[i] <- stationary_probabilities[1]*dist1[i] + stationary_probabilities[2]*dist2[i] 
+}
+
+hist(log_returns, probability = TRUE, col = rgb(0.9, 0.9, 0.9, 0.5), border = "darkgray", 
+     xlim = range(log_returns), ylim = c(0, max(c(mixture_2_states, density(log_returns)$y))),
+     breaks = 30, main = "2 state HMM: Plot of Gaussian Mixture Density against Log Returns",
+     xlab = "Log Returns", ylab = "Density")
+
+points(log_returns, mixture_2_states, col = "lightblue", pch = 16)
+
+curve(dnorm(x, mean = mean(log_returns), sd = sd(log_returns)), col = "gray", lwd = 2, add = TRUE)
+
+legend("topright",  
+       legend = c("Gaussian Mixture Density", "Normal Distribution"), 
+       col = c("lightblue", "gray"),  
+       pch = c(16, NA), 
+       lwd = c(NA, 2), 
+       bty = "n",  
+       cex = 0.8)  
+##################################
+
+
 # Defining Gaussian density function
 gaussian_density <- function(x, mean, sd) {
   dnorm(x, mean = mean, sd = sd)
 }
 # data frame for the density values to overlay
-density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 2000))
 for (i in 1:length(state_means)) {
   density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
 }
@@ -227,12 +258,44 @@ print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
 # Plot log returns with Gaussian mixture
 state_means <- fitted_hmm$pm$mean
 state_sds <-fitted_hmm$pm$sd
+
+###### Plotting Mixture Density with Bell Curve #####
+#  Gaussian mixture density calculation
+dist1 <- dnorm(log_returns, mean = state_means[1], sd = state_sds[1])
+dist2 <- dnorm(log_returns, mean = state_means[2], sd = state_sds[2])
+dist3 <- dnorm(log_returns, mean = state_means[3], sd = state_sds[3])
+
+mixture_3_states <- numeric(length(log_returns))
+
+for(i in 1:length(log_returns)){
+  mixture_3_states[i] <- stationary_probabilities[1]*dist1[i] + stationary_probabilities[2]*dist2[i] + stationary_probabilities[3]*dist3[i] 
+}
+
+hist(log_returns, probability = TRUE, col = rgb(0.9, 0.9, 0.9, 0.5), border = "darkgray", 
+     xlim = range(log_returns), ylim = c(0, max(c(mixture_3_states, density(log_returns)$y))),
+     breaks = 30, main = "3 state HMM: Plot of Gaussian Mixture Density against Log Returns",
+     xlab = "Log Returns", ylab = "Density")
+
+points(log_returns, mixture_3_states, col = "lightgreen", pch = 16)
+
+curve(dnorm(x, mean = mean(log_returns), sd = sd(log_returns)), col = "gray", lwd = 2, add = TRUE)
+
+legend("topright",  
+       legend = c("Gaussian Mixture Density", "Normal Distribution"),  # Labels 
+       col = c("lightgreen", "gray"),
+       pch = c(16, NA),  
+       lwd = c(NA, 2), 
+       bty = "n",  
+       cex = 0.8)  
+##################################
+
+
 # Define Gaussian density function
 gaussian_density <- function(x, mean, sd) {
   dnorm(x, mean = mean, sd = sd)
 }
 # Create a data frame for the density values to overlay
-density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 2000))
 for (i in 1:length(state_means)) {
   density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
 }
@@ -339,12 +402,61 @@ print(fitted_hmm$Pi %*% rep(1, ncol(fitted_hmm$Pi)))
 # Plot log returns with Gaussian mixture
 state_means <- fitted_hmm$pm$mean
 state_sds <-fitted_hmm$pm$sd
+
+
+###### Plotting Mixture Density with Bell Curve #####
+#  Gaussian mixture density calculation
+dist1 <- dnorm(log_returns, mean = state_means[1], sd = state_sds[1])
+dist2 <- dnorm(log_returns, mean = state_means[2], sd = state_sds[2])
+dist3 <- dnorm(log_returns, mean = state_means[3], sd = state_sds[3])
+dist4 <- dnorm(log_returns, mean = state_means[4], sd = state_sds[4])
+
+mixture_4_states <- numeric(length(log_returns))
+
+for(i in 1:length(log_returns)){
+  mixture_4_states[i] <- stationary_probabilities[1]*dist1[i] + stationary_probabilities[2]*dist2[i] + stationary_probabilities[3]*dist3[i] + stationary_probabilities[4]*dist4[i] 
+}
+
+#plot(log_returns, mixture_4_states, type = "p", col = "lightpink", pch = 16,  
+    # xlab = "Log Returns", ylab = "Density", 
+    # main = "4 state HMM: Plot of Gaussian Mixture Density against Log Returns", 
+    # xlim = range(log_returns), ylim = c(0, max(c(mixture_4_states, density(log_returns)$y))))
+
+#curve(dnorm(x, mean = mean(log_returns), sd = sd(log_returns)), col = "gray", lwd = 2, add = TRUE)
+#hist(log_returns, probability = TRUE, col = rgb(0.9, 0.9, 0.9,0.5), border = "darkgray", 
+    # add = TRUE, breaks = 30)
+
+
+
+
+hist(log_returns, probability = TRUE, col = rgb(0.9, 0.9, 0.9, 0.5), border = "darkgray", 
+     xlim = range(log_returns), ylim = c(0, max(c(mixture_4_states, density(log_returns)$y))),
+     breaks = 30, main = "4 state HMM: Plot of Gaussian Mixture Density against Log Returns",
+     xlab = "Log Returns", ylab = "Density")
+
+points(log_returns, mixture_4_states, col = "lightpink", pch = 16)
+
+curve(dnorm(x, mean = mean(log_returns), sd = sd(log_returns)), col = "gray", lwd = 2, add = TRUE)
+
+legend("topright",  
+       legend = c("Gaussian Mixture Density", "Normal Distribution"),  
+       col = c("lightpink", "gray"),  
+       pch = c(16, NA),  
+       lwd = c(NA, 2), 
+       bty = "n", 
+       cex = 0.8)  
+
+##################################
+
+
+
+
 # Define Gaussian density function
 gaussian_density <- function(x, mean, sd) {
   dnorm(x, mean = mean, sd = sd)
 }
 # Create a data frame for the density values to overlay
-density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 500))
+density_data <- data.frame(x = seq(min(log_returns), max(log_returns), length.out = 2000))
 for (i in 1:length(state_means)) {
   density_data[[paste0("State", i)]] <- gaussian_density(density_data$x, state_means[i], state_sds[i])
 }
