@@ -57,6 +57,9 @@ fitted_hmm$Pi       # Transition matrix
 fitted_hmm$delta    # Initial probabilities
 fitted_hmm$pm       # Emission parameters (means and variances)
 
+stationary_probabilities <- eigen(t(fitted_hmm$Pi))$vectors[,1]
+stationary_probabilities <- stationary_probabilities /sum(stationary_probabilities)
+
 hidden_states <- Viterbi(fitted_hmm)
 
 
@@ -162,6 +165,9 @@ summary(fitted_hmm)
 fitted_hmm$Pi       # Transition matrix
 fitted_hmm$delta    # Initial probabilities
 fitted_hmm$pm       # Emission parameters (means and variances)
+
+stationary_probabilities <- eigen(t(fitted_hmm$Pi))$vectors[,1]
+stationary_probabilities <- stationary_probabilities /sum(stationary_probabilities)
 
 
 hidden_states <- Viterbi(fitted_hmm)
@@ -269,6 +275,10 @@ summary(fitted_hmm)
 fitted_hmm$Pi       # Transition matrix
 fitted_hmm$delta    # Initial probabilities
 fitted_hmm$pm       # Emission parameters (means and variances)
+
+stationary_probabilities <- eigen(t(fitted_hmm$Pi))$vectors[,1]
+stationary_probabilities <- stationary_probabilities /sum(stationary_probabilities)
+stationary_probabilities <- Re(stationary_probabilities)
 
 hidden_states <- Viterbi(fitted_hmm)
 
